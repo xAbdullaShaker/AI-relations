@@ -222,3 +222,93 @@ This pattern is called **RAG** (Retrieval-Augmented Generation):
 3. **Generation** — LLM generates a grounded, accurate JSON answer
 
 Without RAG, the LLM only knows its training data. With RAG, it knows **UoB's data** too — and is forbidden from going beyond it.
+
+---
+
+## How the Query Becomes a Vector (and Why It Matters)
+
+This is the core mechanism that prevents hallucination, speeds up search, and reduces token cost.
+
+### Step 1 — Tokenization
+The query is first broken into tokens (word pieces):
+```
+"What are the registration deadlines?"
+→ ["What", "are", "the", "registr", "##ation", "dead", "##lines", "?"]
+```
+
+### Step 2 — Embedding model converts tokens to a vector
+An embedding model (e.g. `text-embedding-3-small`) reads all tokens and outputs a single fixed-size vector of numbers:
+```python
+query_vector = embedding_model.encode("What are the registration deadlines?")
+# → [0.23, -0.87, 0.45, 0.61, -0.12, 0.98, ...]  ← 1536 numbers
+```
+
+Each number represents a dimension of meaning. Similar sentences produce vectors that are close together in space.
+
+```
+"registration deadline"     → [0.23, 0.87, 0.45, ...]
+"last day to register"      → [0.21, 0.85, 0.46, ...]  ← very close ✓
+"library opening hours"     → [0.91, 0.12, 0.78, ...]  ← far away ✗
+```
+
+### Step 3 — Cosine similarity finds the closest match
+The vector DB compares the query vector against every stored document vector using cosine similarity (angle between vectors):
+```
+similarity = 1.0  → identical meaning
+similarity = 0.95 → very close
+similarity = 0.50 → loosely related
+similarity = 0.10 → unrelated
+```
+
+Only the top matches (e.g. top 3) are returned — not the full database.
+
+---
+
+## Why This Prevents Hallucination
+
+Without vectors (pure LLM):
+```
+User: "What is UoB's GPA requirement for honours?"
+LLM:  "Typically 3.5 GPA is required." ← GUESSED from training data, may be wrong
+```
+
+With vectors (RAG):
+```
+User:      "What is UoB's GPA requirement for honours?"
+Vector DB: finds → "UoB requires a minimum 3.7 GPA for honours distinction."
+LLM:       "UoB requires a minimum 3.7 GPA for honours distinction." ← from actual data
+```
+
+The LLM never answers from memory — it only sees the chunks retrieved from the vector DB. The system prompt forbids it from going beyond that data.
+
+---
+
+## Why This Reduces Tokens
+
+Without RAG you would have to send the **entire UoB knowledge base** to the LLM every time:
+```
+prompt = system_prompt + ALL_UOB_DATA + user_query
+# → 500,000+ tokens per request — slow and expensive
+```
+
+With RAG you only send the **top 3 relevant chunks**:
+```
+prompt = system_prompt + top_3_chunks + user_query
+# → ~1,000 tokens per request — fast and cheap
+```
+
+| Approach | Tokens per request | Hallucination risk | Speed |
+|---|---|---|---|
+| Full data dump to LLM | 500,000+ | High (LLM gets confused) | Slow |
+| RAG (vector search first) | ~1,000 | Low (only relevant facts) | Fast |
+
+---
+
+## Why This Speeds Up Search
+
+Comparing text strings across thousands of documents is slow. Comparing vectors is a pure math operation — calculated in milliseconds even across millions of entries using indexes like **HNSW** (Hierarchical Navigable Small World):
+
+```
+Text search across 100,000 docs → scan every word → slow
+Vector search across 100,000 docs → one math operation → milliseconds
+```
