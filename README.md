@@ -1,6 +1,22 @@
-# User → LLM → Vector Database: The Complete Circle
+# UoB AI Assistant — Architecture Guide
 
-A visual and code explanation of how a user, an LLM, and a vector database interact in a full cycle.
+This repo documents the architecture of the **University of Bahrain (UoB) AI Assistant** — how the user, LLM, and vector database interact in a full cycle to answer institutional questions accurately.
+
+---
+
+## Project Overview
+
+The UoB AI assistant answers student and staff questions using **only** official UoB institutional data. It uses RAG (Retrieval-Augmented Generation) to fetch relevant data from a vector database before generating a response.
+
+The LLM is constrained by a system prompt (`system_prompt.txt`) that enforces:
+- JSON-only responses with a confidence score
+- Strict use of provided data — no hallucination
+- Bilingual support (Arabic & English)
+- Prompt injection protection
+
+---
+
+## The Flow
 
 ---
 
@@ -106,22 +122,30 @@ The LLM uses the retrieved data to generate a grounded answer:
 
 ```python
 # 1. User sends query
-user_query = "How much does the laptop cost?"
+user_query = "What are the registration deadlines for Spring 2025?"
 
 # 2. Embed the query into a vector
 query_vector = embedding_model.encode(user_query)
 # → [0.23, 0.87, 0.45, ...]
 
-# 3. Search the vector database
+# 3. Search the UoB vector database
 results = vector_db.search(query_vector, top_k=3)
 # Step 4 happens inside here (cosine similarity)
 
-# 5. DB returns top matches
-# results = [{ "text": "Laptop price is $999.99", "score": 0.97 }]
+# 5. DB returns top matches from UoB institutional data
+# results = [{ "text": "Spring 2025 registration closes on Jan 15", "score": 0.97 }]
 
-# 6. LLM generates final answer using retrieved context
-final_answer = llm.respond(user_query, context=results)
-# → "The laptop costs $999.99."
+# 6. LLM generates a JSON response using retrieved UoB data
+final_answer = llm.respond(
+    system_prompt=open("system_prompt.txt").read(),
+    user_query=user_query,
+    context=results
+)
+# → {
+#     "ai_interpretation": "User is asking about Spring 2025 registration deadline",
+#     "response_confidence": 9,
+#     "response": "Spring 2025 registration closes on January 15, 2025."
+#   }
 ```
 
 ---
